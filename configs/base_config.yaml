@@ -1,0 +1,30 @@
+model:
+  vocab_size: 32000
+  d_model: 256
+  num_heads: 8
+  num_layers: 6
+  d_ff: 1024
+  max_seq_len: 512
+  dropout: 0.1
+
+training:
+  batch_size: 32
+  grad_accum_steps: 4       # effective batch = 128
+  learning_rate: 0.0003
+  warmup_steps: 1000
+  max_steps: 50000
+  max_grad_norm: 1.0
+  mixed_precision: true
+  task_weights:
+    ner: 1.0
+    sentiment: 0.8
+    qa: 1.2
+
+evaluation:
+  eval_every: 500           # steps
+  save_every: 1000
+
+paths:
+  data_dir: ./data/raw
+  output_dir: ./outputs
+  tokenizer_model: ./tokenizer/thai_bpe.model
