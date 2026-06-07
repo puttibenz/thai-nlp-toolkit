@@ -72,8 +72,8 @@ class MultiHeadSelfAttention(nn.Module):
         # final projection
         out = self.out_proj(out)
 
-        # return attn_weights averaged across heads สำหรับ visualization
-        return out, attn_weights.mean(dim=1)        # (B, T, d_model), (B, T, T)
+        # return full attn_weights (มี heads dimension) สำหรับการใช้งานต่อ
+        return out, attn_weights        # (B, T, d_model), (B, num_heads, T, T)
 
 if __name__ == "__main__":
     # quick sanity check
@@ -83,7 +83,7 @@ if __name__ == "__main__":
     out, weights = mha(x)
 
     assert out.shape == (2, 16, 256), f"wrong output shape: {out.shape}"
-    assert weights.shape == (2, 16, 16), f"wrong weights shape: {weights.shape}"
+    assert weights.shape == (2, 8, 16, 16), f"wrong weights shape: {weights.shape}"
     assert not torch.isnan(out).any(), "NaN in output!"
-    assert abs(weights[0, 0].sum().item() - 1.0) < 1e-5, "weights ไม่ sum to 1!"
+    assert abs(weights[0, 0, 0].sum().item() - 1.0) < 1e-5, "weights ไม่ sum to 1!"
     print("attention OK")

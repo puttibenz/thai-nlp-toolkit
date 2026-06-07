@@ -17,9 +17,10 @@ class SentimentHead(nn.Module):
         )
 
     def forward(self, hidden_states: Tensor, attention_mask: Tensor) -> Tensor:
-        # Input shape: (B, T, d_model)
-        # Returns shape: (B, num_classes)
-        # TODO: Implement pooling (e.g., mean pooling or [CLS] token)
-        B, _, d_model = hidden_states.shape
-        pooled = torch.zeros(B, d_model, device=hidden_states.device)
-        return self.classifier(pooled)
+        # Mean pooling — เฉลี่ยเฉพาะ real tokens ไม่รวม padding
+        # attention_mask: (B, T) — 1=real, 0=padding
+        mask = attention_mask.unsqueeze(-1).float()     # (B, T, 1)
+        sum_hidden = (hidden_states * mask).sum(dim=1)  # (B, d_model)
+        lengths = mask.sum(dim=1).clamp(min=1)          # (B, 1) ป้องกัน หารด้วยศูนย์
+        pooled = sum_hidden / lengths                   # (B, d_model)                   # (B, d_model)
+        return self.classifier(pooled)                  # (B, num_classes)
