@@ -39,7 +39,12 @@ class MultiTaskTrainer:
         self.val_loaders   = val_loaders
 
         # ── Device ───────────────────────────────────────────────────────
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        device_name = config.get("training", {}).get("device", "cuda")
+        if device_name == "cuda" and not torch.cuda.is_available():
+            device_name = "cpu"
+        elif device_name == "mps" and not (hasattr(torch.backends, "mps") and torch.backends.mps.is_available()):
+            device_name = "cpu"
+        self.device = torch.device(device_name)
         self.model.to(self.device)
         log.info(f'training on: {self.device}')
 
@@ -108,8 +113,7 @@ class MultiTaskTrainer:
 
         if "qa_start_labels" in batch:
             context_start = batch.get("context_start")
-            ctx_int = int(context_start[0].item()) if context_start is not None else None
-            start_logits, end_logits = self.model.qa_head(hidden, ctx_int)
+            start_logits, end_logits = self.model.qa_head(hidden, context_start)
             predictions["qa_start"] = start_logits
             predictions["qa_end"]   = end_logits
             targets["qa_start_labels"] = batch["qa_start_labels"].to(self.device)

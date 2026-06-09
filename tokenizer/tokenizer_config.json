@@ -1,0 +1,13 @@
+{
+  "vocab_size": 500,
+  "model_file": "thai_bpe.model",
+  "special_tokens": {
+    "pad_id": 0,
+    "unk_id": 1,
+    "bos_id": 2,
+    "eos_id": 3,
+    "cls_id": 4,
+    "sep_id": 5,
+    "mask_id": 6
+  }
+}
