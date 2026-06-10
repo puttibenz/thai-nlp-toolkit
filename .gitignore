@@ -24,6 +24,7 @@ outputs/
 *.model
 *.vocab
 *.log
+*.zip
 
 # Pytest / coverage
 .pytest_cache/

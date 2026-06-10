@@ -1,23 +1,10 @@
 # scripts/train.py
-import argparse
 import os
-import sys
 import yaml
-import pathlib
+import argparse
 import logging
 import torch
 from torch.utils.data import DataLoader
-
-# Add project root to sys.path
-root = pathlib.Path(__file__).resolve().parent.parent
-sys.path.append(str(root))
-
-from tokenizer.thai_tokenizer import ThaiTokenizer
-from model.encoder import ModelConfig
-from inference.pipeline import ThaiNLPModel
-from data.datasets import NERDataset, SentimentDataset, QADataset
-from data.collator import MultiTaskDataCollator
-from training.trainer import MultiTaskTrainer
 
 logging.basicConfig(
     level=logging.INFO,
@@ -26,96 +13,119 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-def main():
-    parser = argparse.ArgumentParser(description="Train multi-task Thai NLP Toolkit model")
-    parser.add_argument("--config", type=str, default="./configs/base_config.yaml", help="Path to config file")
-    parser.add_argument("--device", type=str, default="cuda", help="Computation device (cpu, cuda, mps)")
-    parser.add_argument("--max_steps", type=int, default=None, help="Override maximum training steps")
-    parser.add_argument("--resume_from", type=str, default=None, help="Path to checkpoint to resume training from")
-    
-    args = parser.parse_args()
-    log.info(f"Starting training process with config: {args.config} on device: {args.device}")
 
-    # Load config
-    if not os.path.exists(args.config):
-        raise FileNotFoundError(f"Config file not found at {args.config}")
-    with open(args.config, encoding="utf-8") as f:
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Train multi-task Thai NLP Toolkit"
+    )
+    parser.add_argument("--config",  default="./configs/base_config.yaml")
+    parser.add_argument("--device",  default="auto",
+                        choices=["auto","cuda","cpu","mps"])
+    parser.add_argument("--resume",  default=None,
+                        help="path ของ checkpoint ที่จะ resume จาก")
+    parser.add_argument("--data_dir", default="./data/raw",
+                        help="directory ที่มี dataset files")
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+
+    # ── Config ────────────────────────────────────────────────────────
+    with open(args.config) as f:
         config = yaml.safe_load(f)
 
-    # Set device in config
-    if "training" not in config:
-        config["training"] = {}
-    config["training"]["device"] = args.device
+    if args.device != "auto":
+        config["device"] = args.device
 
-    # Override max_steps if specified
-    if args.max_steps is not None:
-        config["training"]["max_steps"] = args.max_steps
-        log.info(f"Overriding max_steps to: {args.max_steps}")
-        # Ensure warmup_steps is less than max_steps
-        warmup_steps = config["training"].get("warmup_steps", 1000)
-        if warmup_steps >= args.max_steps:
-            config["training"]["warmup_steps"] = max(1, args.max_steps // 2)
-            log.info(f"Adjusted warmup_steps to: {config['training']['warmup_steps']} to be less than max_steps")
+    log.info(f"config: {args.config}")
+    log.info(f"data:   {args.data_dir}")
 
-    paths = config["paths"]
-    data_dir = paths["data_dir"]
-    max_seq_len = config["model"].get("max_seq_len", 512)
+    # ── Tokenizer ─────────────────────────────────────────────────────
+    from tokenizer.thai_tokenizer import ThaiTokenizer
+    tok_dir = config["paths"].get("tokenizer_model", "tokenizer/")
+    # ตัด .model ออกถ้า path ชี้ที่ไฟล์โดยตรง
+    if tok_dir.endswith(".model"):
+        tok_dir = os.path.dirname(tok_dir)
+    tokenizer = ThaiTokenizer.from_pretrained(tok_dir)
+    log.info(f"tokenizer: vocab_size={tokenizer.vocab_size:,}")
 
-    # Initialize tokenizer
-    log.info(f"Loading tokenizer from: {paths['tokenizer_model']}")
-    tokenizer = ThaiTokenizer(paths["tokenizer_model"])
+    # ── Model ─────────────────────────────────────────────────────────
+    from model.encoder import ModelConfig
+    from inference.pipeline import ThaiNLPModel
 
-    # Initialize datasets
-    log.info(f"Loading datasets from: {data_dir}")
-    ner_train = NERDataset(os.path.join(data_dir, "ner_train.jsonl"), tokenizer, max_length=max_seq_len)
-    ner_val = NERDataset(os.path.join(data_dir, "ner_val.jsonl"), tokenizer, max_length=max_seq_len)
+    model_cfg = ModelConfig(**config["model"])
+    model     = ThaiNLPModel(model_cfg)
 
-    sent_train = SentimentDataset(os.path.join(data_dir, "sent_train.tsv"), tokenizer, max_length=max_seq_len)
-    sent_val = SentimentDataset(os.path.join(data_dir, "sent_val.tsv"), tokenizer, max_length=max_seq_len)
+    n_params = sum(p.numel() for p in model.parameters())
+    log.info(f"model params: {n_params:,}")
 
-    qa_train = QADataset(os.path.join(data_dir, "qa_train.json"), tokenizer, max_length=max_seq_len)
-    qa_val = QADataset(os.path.join(data_dir, "qa_val.json"), tokenizer, max_length=max_seq_len)
+    # ── Datasets ──────────────────────────────────────────────────────
+    from data.datasets  import NERDataset, SentimentDataset, QADataset
+    from data.collator  import MultiTaskDataCollator
 
-    log.info(f"Datasets loaded successfully:")
-    log.info(f"  NER: {len(ner_train)} train, {len(ner_val)} val")
-    log.info(f"  Sentiment: {len(sent_train)} train, {len(sent_val)} val")
-    log.info(f"  QA: {len(qa_train)} train, {len(qa_val)} val")
+    tc         = config["training"]
+    batch_size = tc.get("batch_size", 32)
+    max_len    = config["model"].get("max_seq_len", 512)
+    collator   = MultiTaskDataCollator(tokenizer, max_length=max_len)
 
-    # Initialize loaders
-    batch_size = config["training"].get("batch_size", 32)
-    collator = MultiTaskDataCollator(tokenizer, max_length=max_seq_len)
+    def make_loader(dataset, bs, shuffle=True):
+        return DataLoader(
+            dataset, batch_size=bs,
+            shuffle=shuffle, collate_fn=collator,
+            num_workers=min(4, os.cpu_count()),
+            pin_memory=torch.cuda.is_available(),
+        )
 
-    train_loaders = {
-        "ner": DataLoader(ner_train, batch_size=batch_size, shuffle=True, collate_fn=collator),
-        "sentiment": DataLoader(sent_train, batch_size=batch_size, shuffle=True, collate_fn=collator),
-        "qa": DataLoader(qa_train, batch_size=batch_size, shuffle=True, collate_fn=collator)
-    }
+    train_loaders, val_loaders = {}, {}
 
-    val_loaders = {
-        "ner": DataLoader(ner_val, batch_size=batch_size, shuffle=False, collate_fn=collator),
-        "sentiment": DataLoader(sent_val, batch_size=batch_size, shuffle=False, collate_fn=collator),
-        "qa": DataLoader(qa_val, batch_size=batch_size, shuffle=False, collate_fn=collator)
-    }
+    # NER
+    ner_train = os.path.join(args.data_dir, "ner_train.jsonl")
+    ner_val   = os.path.join(args.data_dir, "ner_val.jsonl")
+    if os.path.exists(ner_train):
+        train_loaders["ner"] = make_loader(NERDataset(ner_train, tokenizer, max_len), batch_size)
+        val_loaders["ner"]   = make_loader(NERDataset(ner_val,   tokenizer, max_len), batch_size*2, shuffle=False)
+        log.info(f"NER: {len(train_loaders['ner'].dataset):,} train samples")
+    else:
+        log.warning(f"ไม่พบ {ner_train} — ข้าม NER task")
 
-    # Initialize model
-    log.info("Initializing multi-task model...")
-    model_config = ModelConfig(**config["model"])
-    model = ThaiNLPModel(model_config)
+    # Sentiment
+    sent_train = os.path.join(args.data_dir, "sent_train.tsv")
+    sent_val   = os.path.join(args.data_dir, "sent_val.tsv")
+    if os.path.exists(sent_train):
+        train_loaders["sentiment"] = make_loader(SentimentDataset(sent_train, tokenizer, max_len), batch_size)
+        val_loaders["sentiment"]   = make_loader(SentimentDataset(sent_val,   tokenizer, max_len), batch_size*2, shuffle=False)
+        log.info(f"Sentiment: {len(train_loaders['sentiment'].dataset):,} train samples")
+    else:
+        log.warning(f"ไม่พบ {sent_train} — ข้าม Sentiment task")
 
-    # Initialize trainer
-    log.info("Initializing trainer...")
+    # QA
+    qa_train = os.path.join(args.data_dir, "qa_train.json")
+    qa_val   = os.path.join(args.data_dir, "qa_val.json")
+    if os.path.exists(qa_train):
+        train_loaders["qa"] = make_loader(QADataset(qa_train, tokenizer, max_len), batch_size // 2)
+        val_loaders["qa"]   = make_loader(QADataset(qa_val,   tokenizer, max_len), batch_size,    shuffle=False)
+        log.info(f"QA: {len(train_loaders['qa'].dataset):,} train samples")
+    else:
+        log.warning(f"ไม่พบ {qa_train} — ข้าม QA task")
+
+    if not train_loaders:
+        log.error("ไม่มี dataset เลย — รัน data/download.py ก่อน")
+        return
+
+    # ── Trainer ───────────────────────────────────────────────────────
+    from training.trainer import MultiTaskTrainer
+
     trainer = MultiTaskTrainer(
-        model=model,
-        tokenizer=tokenizer,
-        config=config,
-        train_loaders=train_loaders,
-        val_loaders=val_loaders
+        model        = model,
+        tokenizer    = tokenizer,
+        config       = config,
+        train_loaders= train_loaders,
+        val_loaders  = val_loaders,
     )
 
-    # Run training
-    log.info("Starting training loop...")
-    trainer.train(resume_from=args.resume_from)
-    log.info("Training finished!")
+    trainer.train(resume_from=args.resume)
+
 
 if __name__ == "__main__":
     main()

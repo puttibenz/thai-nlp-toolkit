@@ -27,6 +27,7 @@ class ModelConfig:
     d_ff: int = 1024
     max_seq_len: int = 512
     dropout: float = 0.1
+    pad_token_id: int = 0
 
 class ThaiTransformerEncoder(nn.Module):
     """

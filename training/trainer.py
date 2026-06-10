@@ -4,7 +4,7 @@ import logging
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from typing import Dict, List, Optional, Any
 
 from .losses import MultiTaskLoss
@@ -39,8 +39,15 @@ class MultiTaskTrainer:
         self.val_loaders   = val_loaders
 
         # ── Device ───────────────────────────────────────────────────────
-        device_name = config.get("training", {}).get("device", "cuda")
-        if device_name == "cuda" and not torch.cuda.is_available():
+        device_name = config.get("device", "auto")
+        if device_name == "auto":
+            if torch.cuda.is_available():
+                device_name = "cuda"
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                device_name = "mps"
+            else:
+                device_name = "cpu"
+        elif device_name == "cuda" and not torch.cuda.is_available():
             device_name = "cpu"
         elif device_name == "mps" and not (hasattr(torch.backends, "mps") and torch.backends.mps.is_available()):
             device_name = "cpu"
@@ -79,7 +86,7 @@ class MultiTaskTrainer:
 
         # ── Mixed precision scaler ────────────────────────────────────────
         # GradScaler ป้องกัน underflow ของ fp16 gradient
-        self.scaler = GradScaler(enabled=self.use_amp)
+        self.scaler = GradScaler(device=self.device.type, enabled=self.use_amp)
 
          # ── State ─────────────────────────────────────────────────────────
         self.global_step   = 0
@@ -166,7 +173,7 @@ class MultiTaskTrainer:
                     break   # loader ว่างจริงๆ
 
             # ── Forward + Loss ────────────────────────────────────────
-            with autocast(enabled=self.use_amp):
+            with autocast(device_type=self.device.type, enabled=self.use_amp):
                 predictions, targets = self._forward(batch)
                 losses = self.loss_fn(predictions, targets)
                 # หาร grad_accum_steps เพื่อ normalize gradient
@@ -250,7 +257,7 @@ class MultiTaskTrainer:
 
         with torch.no_grad():
             for batch in self.val_loaders[task]:
-                with autocast(enabled=self.use_amp):
+                with autocast(device_type=self.device.type, enabled=self.use_amp):
                     predictions, targets = self._forward(batch)
                     losses = self.loss_fn(predictions, targets)
 

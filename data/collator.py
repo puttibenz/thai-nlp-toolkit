@@ -32,13 +32,9 @@ class MultiTaskDataCollator:
 
         # ── Step 2: Detect task จาก keys ของ sample แรก ─────────────────
         keys         = set(batch[0].keys())
-        is_ner       = "labels"       in keys and "start_labels" not in keys
-        is_qa        = "start_labels" in keys 
-        is_sent = "labels"       in keys and not is_ner and not is_qa
-        # fallback: ถ้า labels เป็น 1D scalar = sentiment
-        if is_ner and batch[0]['labels'].dim() == 0:
-            is_ner = False
-            is_sent = True
+        is_qa        = "start_labels" in keys
+        is_ner       = "labels" in keys and not is_qa and batch[0]['labels'].dim() > 0
+        is_sent      = "labels" in keys and not is_qa and batch[0]['labels'].dim() == 0
 
         # ── Step 3: Pad input_ids และ attention_mask ─────────────────────
         pad_id = self.tokenizer.pad_id
