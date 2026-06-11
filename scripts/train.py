@@ -25,6 +25,8 @@ def parse_args():
                         help="path ของ checkpoint ที่จะ resume จาก")
     parser.add_argument("--data_dir", default="./data/raw",
                         help="directory ที่มี dataset files")
+    parser.add_argument("--output_dir", default=None,
+                        help="directory สำหรับเก็บ output checkpoint (ทับค่าใน config)")
     return parser.parse_args()
 
 
@@ -38,8 +40,15 @@ def main():
     if args.device != "auto":
         config["device"] = args.device
 
+    if args.output_dir is not None:
+        if "paths" not in config:
+            config["paths"] = {}
+        config["paths"]["output_dir"] = args.output_dir
+
     log.info(f"config: {args.config}")
     log.info(f"data:   {args.data_dir}")
+    if args.output_dir is not None:
+        log.info(f"output: {args.output_dir}")
 
     # ── Tokenizer ─────────────────────────────────────────────────────
     from tokenizer.thai_tokenizer import ThaiTokenizer
