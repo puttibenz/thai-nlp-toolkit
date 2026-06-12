@@ -4,9 +4,9 @@ from torch import Tensor
 # Label maps for NER token-level classification
 NER_ID2LABEL = {
     0: "O",
-    1: "B-PER", 2: "I-PER",
-    3: "B-ORG", 4: "I-ORG",
-    5: "B-LOC", 6: "I-LOC",
+    1: "B-PERSON", 2: "I-PERSON",
+    3: "B-ORGANIZATION", 4: "I-ORGANIZATION",
+    5: "B-LOCATION", 6: "I-LOCATION",
 }
 NER_LABEL2ID = {v: k for k, v in NER_ID2LABEL.items()}
 
