@@ -1,6 +1,16 @@
 import torch.nn as nn
 from torch import Tensor
 
+# Label maps for NER token-level classification
+NER_ID2LABEL = {
+    0: "O",
+    1: "B-PER", 2: "I-PER",
+    3: "B-ORG", 4: "I-ORG",
+    5: "B-LOC", 6: "I-LOC",
+}
+NER_LABEL2ID = {v: k for k, v in NER_ID2LABEL.items()}
+
+
 class NERHead(nn.Module):
     """
     Token-level classification head for Named Entity Recognition.
