@@ -11,8 +11,8 @@ training:
   batch_size: 32
   grad_accum_steps: 4       # effective batch = 128
   learning_rate: 0.0003
-  warmup_steps: 1000
-  max_steps: 50000
+  warmup_steps: 200
+  max_steps: 5000
   max_grad_norm: 1.0
   mixed_precision: true
   task_weights:
@@ -21,8 +21,8 @@ training:
     qa: 1.2
 
 evaluation:
-  eval_every: 500           # steps
-  save_every: 1000
+  eval_every: 200           # steps
+  save_every: 500
 
 paths:
   data_dir: ./data/raw
