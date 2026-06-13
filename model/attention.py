@@ -73,7 +73,7 @@ class MultiHeadSelfAttention(nn.Module):
         out = self.out_proj(out)
 
         # return full attn_weights (มี heads dimension) สำหรับการใช้งานต่อ
-        return out, attn_weights        # (B, T, d_model), (B, num_heads, T, T)
+        return out, attn_weights.mean(dim=1)       # (B, T, d_model), (B, num_heads, T, T)
 
 if __name__ == "__main__":
     # quick sanity check

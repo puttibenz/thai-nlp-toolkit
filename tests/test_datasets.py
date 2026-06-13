@@ -13,6 +13,11 @@ class TestDatasets(unittest.TestCase):
         tok.cls_id = 4
         tok.sep_id = 5
         tok.sp.encode = lambda t, out_type: [10, 20] if len(t) > 2 else [10]
+        tok.sp.decode = lambda ids: (
+            "" if not ids else
+            "สมชาย" if ids == [20] else
+            "สมชายเดินไปตลาด"
+        )
         tok.batch_encode = lambda texts, **kw: {
             "input_ids":      torch.tensor([[4, 10, 20, 5]]),
             "attention_mask": torch.tensor([[1,  1,  1, 1]]),
