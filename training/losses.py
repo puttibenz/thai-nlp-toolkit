@@ -20,7 +20,16 @@ class MultiTaskLoss(nn.Module):
         # ignore_index=-100 คือ convention มาตรฐาน:
         # label ที่เป็น -100 จะถูกข้ามออกจากการคำนวณ loss
         # ใช้ mark padding tokens และ tokens ที่ไม่ใช่ first subword ใน NER
-        self.ner_loss_fn       = nn.CrossEntropyLoss(ignore_index=-100)
+
+        # NER class weights — ให้น้ำหนัก entity tags มากกว่า O
+        # เพราะ O (Outside) มีจำนวนเยอะกว่ามาก ทำให้โมเดลเอียงทำนาย O เกือบทั้งหมด
+        # index: 0=O, 1=B-PERSON, 2=I-PERSON, 3=B-ORG, 4=I-ORG, 5=B-LOC, 6=I-LOC
+        ner_class_weights = torch.tensor(
+            [1.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0]
+        )
+        self.ner_loss_fn       = nn.CrossEntropyLoss(
+            weight=ner_class_weights, ignore_index=-100
+        )
         self.sentiment_loss_fn = nn.CrossEntropyLoss()
         # QA ใช้ ignore_index=-100 เพื่อ handle กรณี answer ไม่อยู่ใน context
         self.qa_loss_fn        = nn.CrossEntropyLoss(ignore_index=-100)
