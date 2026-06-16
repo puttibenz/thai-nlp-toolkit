@@ -122,7 +122,7 @@ def train_sentencepiece(
     spm.SentencePieceTrainer.train(
         # ── Input ──────────────────────────────────
         input=corpus_path,
-        input_sentence_size=5_000_000,   # จำกัด lines ที่ใช้ train (ป้องกัน OOM)
+        input_sentence_size=1_000_000,   # จำกัด lines ที่ใช้ train (ป้องกัน OOM และลดเวลาการเทรนลงมาก)
         shuffle_input_sentence=True,     # shuffle ก่อน train เพื่อ distribution ดีขึ้น
 
         # ── Output ─────────────────────────────────
