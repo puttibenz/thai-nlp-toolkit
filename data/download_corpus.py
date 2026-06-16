@@ -35,11 +35,13 @@ def download_thai_wiki_corpus(output_dir: str, max_lines: int = 2_000_000) -> in
     log.info("(อาจใช้เวลาสักครู่ในการดาวน์โหลดครั้งแรก)")
 
     # ใช้ streaming เพื่อไม่ให้ RAM เต็ม
+    # wikimedia/wikipedia เป็น official dataset จาก Wikimedia Foundation
+    # config "20231101.th" = Thai Wikipedia dump วันที่ 1 พ.ย. 2023
     ds = load_dataset(
-        "pythainlp/thwiki-20240801",
+        "wikimedia/wikipedia",
+        "20231101.th",
         split="train",
         streaming=True,
-        trust_remote_code=True,
     )
 
     written = 0
