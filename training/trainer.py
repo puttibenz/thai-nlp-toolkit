@@ -82,7 +82,7 @@ class MultiTaskTrainer:
         # ── Loss function ─────────────────────────────────────────────────
         self.loss_fn = MultiTaskLoss(
             task_weights=tc.get("task_weights", {"ner": 1.0, "sentiment": 0.8, "qa": 1.2})
-        )
+        ).to(self.device)
 
         # ── Mixed precision scaler ────────────────────────────────────────
         # GradScaler ป้องกัน underflow ของ fp16 gradient
