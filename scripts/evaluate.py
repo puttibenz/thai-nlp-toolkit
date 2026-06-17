@@ -136,10 +136,14 @@ def evaluate_qa(pipeline, data_dir, tokenizer):
             ids    = batch["input_ids"].to(pipeline.device)
             mask   = batch["attention_mask"].to(pipeline.device)
             ctx    = batch.get("context_start")
-            ctx_int= int(ctx[0].item()) if ctx is not None else None
-
             hidden, _ = pipeline.model.encoder(ids, mask)
-            s_logits, e_logits = pipeline.model.qa_head(hidden, ctx_int)
+            s_logits, e_logits = pipeline.model.qa_head(hidden, ctx)
+
+            # Mask out padding positions using attention_mask
+            if mask is not None:
+                pad_mask = (mask == 0)
+                s_logits = s_logits.masked_fill(pad_mask, torch.finfo(s_logits.dtype).min)
+                e_logits = e_logits.masked_fill(pad_mask, torch.finfo(e_logits.dtype).min)
 
             # decode ทีละ sample
             for i in range(ids.size(0)):
