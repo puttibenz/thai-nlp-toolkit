@@ -38,7 +38,7 @@ class ThaiNLPPipeline:
     โหลด model ครั้งเดียวแล้วเรียก predict() ได้เรื่อยๆ
     """
 
-    def __init__(self, model_dir: str, device: str = "auto"):
+    def __init__(self, model_dir: str, device: str = "auto", checkpoint_name: str = "checkpoint_best"):
         # ── Device ───────────────────────────────────────────────────────
         if device == "auto":
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -59,7 +59,7 @@ class ThaiNLPPipeline:
 
         # ── Load model ────────────────────────────────────────────────────
         self.model = ThaiNLPModel(model_cfg)
-        ckpt_path  = os.path.join(model_dir, "checkpoint_best", "checkpoint.pt")
+        ckpt_path  = os.path.join(model_dir, checkpoint_name, "checkpoint.pt")
         if not os.path.exists(ckpt_path):
             raise FileNotFoundError(f"ไม่พบ checkpoint: {ckpt_path}")
 
@@ -68,7 +68,9 @@ class ThaiNLPPipeline:
         self.model.to(self.device)
         self.model.eval()
 
-        print(f"pipeline ready on {self.device}")
+        step = ckpt.get("global_step", "unknown")
+        metric = ckpt.get("best_metric", "unknown")
+        print(f"pipeline ready on {self.device} (loaded {checkpoint_name} from step {step} with best_val_loss={metric})")
 
     # ─────────────────────────────────────────────────────────────────────
     # predict — entry point หลัก

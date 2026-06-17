@@ -175,16 +175,42 @@ def _normalize_answer(text: str) -> str:
     return text
 
 
+def _char_f1(pred: str, ref: str) -> float:
+    """Character-level F1 for languages without word boundaries (like Thai)."""
+    pred_chars = list(_normalize_answer(pred))
+    ref_chars  = list(_normalize_answer(ref))
+
+    if not pred_chars or not ref_chars:
+        return float(pred_chars == ref_chars)
+
+    common = Counter(pred_chars) & Counter(ref_chars)
+    n_common = sum(common.values())
+
+    if n_common == 0:
+        return 0.0
+
+    precision = n_common / len(pred_chars)
+    recall    = n_common / len(ref_chars)
+    return 2 * precision * recall / (precision + recall)
+
+
 def _token_f1(pred: str, ref: str) -> float:
     """
     Token-level F1 ระหว่าง pred กับ ref
     นับ token ที่ overlap กัน (ไม่สนลำดับ)
 
     เป็น metric มาตรฐานของ SQuAD — ให้ partial credit
-    เช่น ref="สมชาย ทำงาน" pred="สมชาย" → F1 = 0.67
+    ถ้าเป็นภาษาไทย (ไม่มี space) จะ fallback เป็น character-level F1 อัตโนมัติ
     """
-    pred_tokens = _normalize_answer(pred).split()
-    ref_tokens  = _normalize_answer(ref).split()
+    pred_norm = _normalize_answer(pred)
+    ref_norm  = _normalize_answer(ref)
+
+    pred_tokens = pred_norm.split()
+    ref_tokens  = ref_norm.split()
+
+    # Fallback to character-level F1 if it's Thai text (no spaces, split length <= 1)
+    if len(pred_tokens) <= 1 and len(ref_tokens) <= 1:
+        return _char_f1(pred, ref)
 
     if not pred_tokens or not ref_tokens:
         return float(pred_tokens == ref_tokens)

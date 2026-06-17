@@ -27,6 +27,8 @@ def parse_args():
     parser.add_argument("--device", default="auto")
     parser.add_argument("--output", default=None,
                         help="บันทึกผล metrics เป็น JSON (optional)")
+    parser.add_argument("--checkpoint_name", default="checkpoint_best",
+                        help="ชื่อโฟลเดอร์ checkpoint (เช่น checkpoint_best, checkpoint_final)")
     return parser.parse_args()
 
 
@@ -129,6 +131,7 @@ def evaluate_qa(pipeline, data_dir, tokenizer):
                          shuffle=False)
 
     all_preds, all_refs = [], []
+    global_idx = 0
 
     pipeline.model.eval()
     with torch.no_grad():
@@ -145,21 +148,31 @@ def evaluate_qa(pipeline, data_dir, tokenizer):
                 s_logits = s_logits.masked_fill(pad_mask, torch.finfo(s_logits.dtype).min)
                 e_logits = e_logits.masked_fill(pad_mask, torch.finfo(e_logits.dtype).min)
 
-            # decode ทีละ sample
+            # decode ทีละ sample ด้วย constrained joint span search
+            MAX_ANSWER_LEN = 30
             for i in range(ids.size(0)):
-                s = s_logits[i].argmax().item()
-                e = e_logits[i].argmax().item()
-                e = max(s, e)   # end ต้องไม่น้อยกว่า start
+                ctx_s = ctx[i].item() if ctx is not None else 0
+                seq_len = (mask[i] == 1).sum().item()
 
-                answer_ids = batch["input_ids"][i][s:e+1].tolist()
+                best_score = float("-inf")
+                best_s, best_e = ctx_s, ctx_s
+
+                for s in range(ctx_s, seq_len):
+                    for e in range(s, min(s + MAX_ANSWER_LEN, seq_len)):
+                        score = s_logits[i, s].item() + e_logits[i, e].item()
+                        if score > best_score:
+                            best_score = score
+                            best_s, best_e = s, e
+
+                answer_ids = batch["input_ids"][i][best_s:best_e+1].tolist()
                 pred_text  = tokenizer.decode(answer_ids, skip_special_tokens=True)
                 all_preds.append({"prediction_text": pred_text})
 
-            # ref จาก dataset โดยตรง — ดึง original examples
-            for idx in range(ids.size(0)):
-                ex = dataset.examples[len(all_preds) - ids.size(0) + idx]
+                # ref จาก dataset โดยตรง — ใช้ global_idx
+                ex = dataset.examples[global_idx]
                 answers = ex.get("answers", [])
                 all_refs.append({"answers": {"text": answers}})
+                global_idx += 1
 
     # print top 5 samples for debugging
     log.info("=== Sample Predictions ===")
@@ -179,7 +192,11 @@ def main():
 
     # ── Load pipeline ──────────────────────────────────────────────────
     from inference.pipeline import ThaiNLPPipeline
-    pipeline  = ThaiNLPPipeline(model_dir=args.model_dir, device=args.device)
+    pipeline  = ThaiNLPPipeline(
+        model_dir=args.model_dir,
+        device=args.device,
+        checkpoint_name=args.checkpoint_name
+    )
     tokenizer = pipeline.tokenizer
 
     # ── Evaluate ───────────────────────────────────────────────────────
