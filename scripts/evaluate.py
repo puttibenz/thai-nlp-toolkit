@@ -161,6 +161,13 @@ def evaluate_qa(pipeline, data_dir, tokenizer):
                 answers = ex.get("answers", [])
                 all_refs.append({"answers": {"text": answers}})
 
+    # print top 5 samples for debugging
+    log.info("=== Sample Predictions ===")
+    for i in range(min(5, len(all_preds))):
+        log.info(f"Ref:  {all_refs[i]['answers']['text']}")
+        log.info(f"Pred: {all_preds[i]['prediction_text']}")
+        log.info("-" * 30)
+
     metrics = compute_qa_metrics(all_preds, all_refs)
     log.info(f"QA   — EM: {metrics['qa_exact_match']:.4f} | "
              f"F1: {metrics['qa_f1']:.4f}")
