@@ -1,0 +1,29 @@
+# configs/qa_finetune_config.yaml
+# ค่าโมเดลและโครงสร้างสถาปัตยกรรม (ต้องตรงกับ checkpoint_final ที่ใช้)
+model:
+  vocab_size: 32000
+  d_model: 256
+  num_heads: 8
+  num_layers: 6
+  d_ff: 1024
+  max_seq_len: 512
+  dropout: 0.1
+
+qa_finetune:
+  # Phase 1: เทรนเฉพาะหัว QA head (Freeze encoder + heads อื่นๆ ทั้งหมด)
+  phase1_steps: 5000
+  phase1_lr: 0.0003
+  phase1_warmup: 200
+
+  # Phase 2: เทรนหัว QA head + ปลดล็อค encoder ระดับบน (top layers) ด้วยการปรับแต่งแบบเบาบาง
+  phase2_steps: 10000
+  phase2_head_lr: 0.0001       # learning rate สำหรับหัว QA
+  phase2_encoder_lr: 0.00005   # learning rate ที่ต่ำลงสำหรับ encoder layers
+  phase2_warmup: 500
+  unfreeze_layers: 2           # ปลดล็อค encoder 2 layer บนสุด (layer 4 และ 5)
+
+  # ค่าคอนฟิกการเทรนร่วมกัน
+  batch_size: 16
+  grad_accum_steps: 4          # effective batch size = 64
+  max_grad_norm: 1.0
+  eval_every: 500

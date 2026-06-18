@@ -1,8 +1,14 @@
 import json
+import logging
 import torch
 from pathlib import Path
 from torch.utils.data import Dataset
 from typing import Any, Dict, List, Optional
+
+from tokenizer.preprocess import preprocess_thai
+
+log = logging.getLogger(__name__)
+
 
 
 # ── NER label map ────────────────────────────────────────────────────────────
@@ -194,6 +200,30 @@ class QADataset(Dataset):
         self.tokenizer  = tokenizer
         self.max_length = max_length
         self.examples   = self._load(data_path)
+        self._log_span_match_rate()
+
+    def _log_span_match_rate(self):
+        import unicodedata
+        matched = 0
+        for ex in self.examples:
+            answers = ex["answers"]
+            answer_list = answers if isinstance(answers, list) else answers.get("text", [])
+            if not answer_list:
+                continue
+            answer_text = answer_list[0]
+            encoded = self.tokenizer.encode_qa(ex["question"], ex["context"], self.max_length)
+            ctx_ids = encoded["input_ids"][encoded["context_start"]:-1]
+            ctx_text = self.tokenizer.sp.decode(ctx_ids)
+            
+            answer_clean = preprocess_thai(answer_text)
+            context_nfkc = unicodedata.normalize("NFKC", ctx_text)
+            answer_nfkc = unicodedata.normalize("NFKC", answer_clean)
+            
+            if context_nfkc.find(answer_nfkc) != -1 or context_nfkc.find(unicodedata.normalize("NFKC", answer_text)) != -1:
+                matched += 1
+        total = len(self.examples)
+        rate = 100 * matched / max(total, 1)
+        log.info(f"QA span match rate: {matched}/{total} ({rate:.1f}%)")
 
     def _load(self, path: str) -> List[Dict]:
         with open(path, encoding="utf-8") as f:
@@ -235,16 +265,33 @@ class QADataset(Dataset):
         หา start/end token position ของ answer ใน context_ids
         ใช้ character prefix decoding alignment เพื่อความแม่นยำสูง (100% match rate)
         """
+        import unicodedata
         context_text = self.tokenizer.sp.decode(context_ids)
-        char_start = context_text.find(answer_text)
+        
+        # preprocess answer ให้ตรงกับ context ที่ผ่าน preprocess แล้ว
+        answer_clean = preprocess_thai(answer_text)
+        
+        # NFKC normalize ทั้ง context และ answer เพื่อให้สระอำ (\u0E33) และการแปลงวรรณยุกต์ตรงกัน
+        context_nfkc = unicodedata.normalize("NFKC", context_text)
+        answer_nfkc = unicodedata.normalize("NFKC", answer_clean)
+        
+        char_start = context_nfkc.find(answer_nfkc)
+        
+        if char_start == -1:
+            # fallback: ลองค้นหาด้วย text ดิบ
+            answer_raw_nfkc = unicodedata.normalize("NFKC", answer_text)
+            char_start = context_nfkc.find(answer_raw_nfkc)
+            if char_start != -1:
+                answer_nfkc = answer_raw_nfkc
+                
         if char_start == -1:
             return context_start, context_start
             
-        char_end = char_start + len(answer_text)
+        char_end = char_start + len(answer_nfkc)
         
         prefix_lens = []
         for i in range(len(context_ids) + 1):
-            prefix_lens.append(len(self.tokenizer.sp.decode(context_ids[:i])))
+            prefix_lens.append(len(unicodedata.normalize("NFKC", self.tokenizer.sp.decode(context_ids[:i]))))
             
         best_start = None
         best_end = None
