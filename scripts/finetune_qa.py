@@ -272,18 +272,7 @@ def main():
     shutil.copytree(tok_dir, dest_tok_dir)
 
     # ── Phase 1: Train QA Head Only ───────────────────────────────────
-    log.info("=== Phase 1: Training QA Head Only ===")
-    freeze_model_except_qa(model)
-
     phase1_steps = qafc.get("phase1_steps", 5000)
-    phase1_lr = qafc.get("phase1_lr", 3e-4)
-    phase1_warmup = qafc.get("phase1_warmup", 200)
-
-    # Optimizer & Scheduler สำหรับ Phase 1
-    # เฉพาะ params ที่ requires_grad=True
-    trainable_params_p1 = [p for p in model.parameters() if p.requires_grad]
-    optimizer = torch.optim.AdamW(trainable_params_p1, lr=phase1_lr, weight_decay=0.01)
-    scheduler = get_scheduler(optimizer, warmup_steps=phase1_warmup, max_steps=phase1_steps, schedule="cosine")
     
     use_amp = base_config["training"].get("mixed_precision", True) and device.type == "cuda"
     scaler = GradScaler(device=device.type, enabled=use_amp)
@@ -295,6 +284,10 @@ def main():
 
     start_time = time.time()
     
+    # ตัวแปรสำหรับเก็บ optimizer และ scheduler ที่ทำงานเป็นตัวสุดท้าย เพื่อใช้เซฟ checkpoint ตอนท้าย
+    active_optimizer = None
+    active_scheduler = None
+
     def run_train_phase(max_steps, optimizer, scheduler, current_phase_name):
         nonlocal global_step, best_qa_f1
         model.train()
@@ -373,8 +366,25 @@ def main():
                     step_path = os.path.join(output_dir, f"checkpoint_step{global_step}")
                     save_finetuned_checkpoint(model, optimizer, scheduler, scaler, global_step, best_qa_f1, step_path, base_config)
 
-    # รัน Phase 1
-    run_train_phase(phase1_steps, optimizer, scheduler, "Phase 1")
+    if phase1_steps > 0:
+        log.info("=== Phase 1: Training QA Head Only ===")
+        freeze_model_except_qa(model)
+
+        phase1_lr = qafc.get("phase1_lr", 3e-4)
+        phase1_warmup = qafc.get("phase1_warmup", 200)
+
+        # Optimizer & Scheduler สำหรับ Phase 1
+        trainable_params_p1 = [p for p in model.parameters() if p.requires_grad]
+        optimizer = torch.optim.AdamW(trainable_params_p1, lr=phase1_lr, weight_decay=0.01)
+        scheduler = get_scheduler(optimizer, warmup_steps=phase1_warmup, max_steps=phase1_steps, schedule="cosine")
+        
+        active_optimizer = optimizer
+        active_scheduler = scheduler
+        
+        # รัน Phase 1
+        run_train_phase(phase1_steps, optimizer, scheduler, "Phase 1")
+    else:
+        log.info("=== Phase 1 skipped (steps == 0) ===")
 
     # ── Phase 2: Unfreeze Top Encoder Layers ─────────────────────────
     phase2_steps = qafc.get("phase2_steps", 10000)
@@ -406,13 +416,21 @@ def main():
         optimizer_p2 = torch.optim.AdamW(param_groups, weight_decay=0.01)
         scheduler_p2 = get_scheduler(optimizer_p2, warmup_steps=phase2_warmup, max_steps=phase2_steps, schedule="cosine")
 
+        active_optimizer = optimizer_p2
+        active_scheduler = scheduler_p2
+
         # รัน Phase 2
         run_train_phase(phase2_steps, optimizer_p2, scheduler_p2, "Phase 2")
+    else:
+        log.info("=== Phase 2 skipped (steps == 0) ===")
 
     # Save final checkpoint
-    final_path = os.path.join(output_dir, "checkpoint_final")
-    save_finetuned_checkpoint(model, optimizer, scheduler, scaler, global_step, best_qa_f1, final_path, base_config)
-    log.info(f"QA Fine-tuning complete! Best Validation F1: {best_qa_f1:.4f}")
+    if active_optimizer is not None:
+        final_path = os.path.join(output_dir, "checkpoint_final")
+        save_finetuned_checkpoint(model, active_optimizer, active_scheduler, scaler, global_step, best_qa_f1, final_path, base_config)
+        log.info(f"QA Fine-tuning complete! Best Validation F1: {best_qa_f1:.4f}")
+    else:
+        log.info("No training was performed (both phases set to 0 steps).")
 
 
 if __name__ == "__main__":
