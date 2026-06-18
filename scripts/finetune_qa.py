@@ -304,6 +304,7 @@ def main():
         optimizer.zero_grad()
 
         iter_loader = iter(train_loader)
+        save_every = qafc.get("save_every", 1000)
 
         while step_in_phase < max_steps * grad_accum_steps:
             try:
@@ -331,7 +332,9 @@ def main():
 
             if step_in_phase % grad_accum_steps == 0:
                 scaler.unscale_(optimizer)
-                nn.utils.clip_grad_norm_(trainable_params_p1, qafc.get("max_grad_norm", 1.0))
+                # ดึงเฉพาะ params ที่ trainable ณ ขณะนั้นมาทำ clip
+                trainable_params = [p for p in model.parameters() if p.requires_grad]
+                nn.utils.clip_grad_norm_(trainable_params, qafc.get("max_grad_norm", 1.0))
                 scaler.step(optimizer)
                 scaler.update()
                 scheduler.step()
@@ -364,6 +367,11 @@ def main():
                         log.info(f"New Best Checkpoint saved with F1={f1:.4f}")
                     
                     model.train()
+
+                # บันทึก checkpoint เป็นระยะ
+                if global_step % save_every == 0:
+                    step_path = os.path.join(output_dir, f"checkpoint_step{global_step}")
+                    save_finetuned_checkpoint(model, optimizer, scheduler, scaler, global_step, best_qa_f1, step_path, base_config)
 
     # รัน Phase 1
     run_train_phase(phase1_steps, optimizer, scheduler, "Phase 1")
